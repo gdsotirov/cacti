@@ -40,6 +40,18 @@ $status_names = array(
 	4  => __('Installed')
 );
 
+$DEBUG_FILE='/tmp/plugins.php.log';
+
+function gds_debug($msg) {
+	global $DEBUG_FILE;
+	$date = date('Y-m-d H:i:s.').gettimeofday()['usec'];
+	$dbg_msg = "$date:DEBUG: ".$msg;
+	file_put_contents($DEBUG_FILE, $dbg_msg, FILE_APPEND);
+	return 0;
+}
+
+gds_debug("Enter plugins.php\n");
+
 /* get the comprehensive list of plugins */
 $pluginslist = retrieve_plugin_list();
 
@@ -122,11 +134,14 @@ if (isset_request_var('mode') && in_array(get_nfilter_request_var('mode'), $mode
 }
 
 function retrieve_plugin_list() {
+	gds_debug("Enter retrieve_plugin_list()\n");
 	$pluginslist = array();
 	$temp = db_fetch_assoc('SELECT directory FROM plugin_config ORDER BY name');
 	foreach ($temp as $t) {
+		gds_debug("Plugin dir: ".$t['directory']);
 		$pluginslist[] = $t['directory'];
 	}
+	gds_debug("Exit retrieve_plugin_list()\n");
 	return $pluginslist;
 }
 
@@ -143,7 +158,11 @@ function plugins_temp_table_exists($table) {
 function plugins_load_temp_table() {
 	global $config, $plugins, $plugins_integrated;
 
+	gds_debug("Enter plugins_load_temp_table()\n");
+
 	$table = 'plugin_temp_table_' . rand();
+
+	gds_debug("table = $table\n");
 
 	$x = 0;
 	while ($x < 30) {
@@ -169,11 +188,16 @@ function plugins_load_temp_table() {
 	}
 
 	$path = $config['base_path'] . '/plugins/';
+	gds_debug("path = ".$path."\n");
 	$dh   = opendir($path);
 	if ($dh !== false) {
+		gds_debug("Reading '$path'\n");
 		while (($file = readdir($dh)) !== false) {
+			gds_debug("Reading '$path$file'\n");
 			if (is_dir("$path$file") && file_exists("$path$file/setup.php") && !in_array($file, $plugins_integrated)) {
+				gds_debug("Is directory '$path$file'\n");
 				if (file_exists("$path$file/INFO")) {
+					gds_debug("Found $path$file/INFO\n");
 					$cinfo[$file] = plugin_load_info_file("$path/$file/INFO");
 
 					if (!isset($cinfo[$file]['author']))   $cinfo[$file]['author']   = __('Unknown');
@@ -206,12 +230,30 @@ function plugins_load_temp_table() {
 					);
 				}
 
+				gds_debug("status = ".$cinfo[$file]['status']."\n");
+
 				$exists = db_fetch_cell_prepared("SELECT COUNT(*)
 					FROM $table
 					WHERE directory = ?",
 					array($file));
 
+				$exists_str = $exists ? 'true' : 'false';
+				gds_debug("exists = $exists_str\n");
+
 				if (!$exists) {
+					$dbg_msg = "INSERT INTO $table ";
+					$dbg_msg .= "(directory, name, status, author, webpage, version, requires, infoname) ";
+					$dbg_msg .= sprintf("VALUES (%s, %s, %s, %s, %s, %s, %s, %s)\n",
+							$file,
+							$cinfo[$file]['longname'],
+							$cinfo[$file]['status'],
+							$cinfo[$file]['author'],
+							$cinfo[$file]['homepage'],
+							$cinfo[$file]['version'],
+							$cinfo[$file]['requires'],
+							$cinfo[$file]['name']
+					);
+					gds_debug($dbg_msg);
 					db_execute_prepared("INSERT INTO $table
 						(directory, name, status, author, webpage, version, requires, infoname)
 						VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -235,14 +277,22 @@ function plugins_load_temp_table() {
 			}
 		}
 
+		gds_debug("Closing '$path'\n");
 		closedir($dh);
 	}
+	else {
+		gds_debug("Cannot read '$path': ");
+	}
+
+	gds_debug("Exit plugins_load_temp_table()\n");
 
 	return $table;
 }
 
 function update_show_current () {
 	global $plugins, $pluginslist, $config, $status_names, $actions, $item_rows;
+
+	gds_debug("Enter update_show_current()\n");
 
 	/* ================= input validation and session storage ================= */
 	$filters = array(
@@ -282,6 +332,8 @@ function update_show_current () {
 	/* ================= input validation ================= */
 
 	$table = plugins_load_temp_table();
+
+	gds_debug("table = $table\n");
 
 	?>
 	<script type="text/javascript">
@@ -393,10 +445,13 @@ function update_show_current () {
 		$rows = get_request_var('rows');
 	}
 
+	gds_debug("SELECT count(*) FROM $table $sql_where\n");
 	$total_rows = db_fetch_cell("SELECT
 		count(*)
 		FROM $table
 		$sql_where");
+
+	gds_debug("total_rows = $total_rows\n");
 
 	$sql_order = get_order_string();
 	$sql_limit = ' LIMIT ' . ($rows*(get_request_var('page')-1)) . ',' . $rows;
@@ -404,6 +459,7 @@ function update_show_current () {
 	$sql_order = str_replace('version ', 'version+0 ', $sql_order);
 	$sql_order = str_replace('id DESC', 'id ASC', $sql_order);
 
+	gds_debug("SELECT * FROM $table $sql_where $sql_order $sql_limit\n");
 	$plugins = db_fetch_assoc("SELECT *
 		FROM $table
 		$sql_where
@@ -432,6 +488,7 @@ function update_show_current () {
 	html_header_sort($display_text, get_request_var('sort_column'), get_request_var('sort_direction'), 1);
 
 	$i = 0;
+	gds_debug("Plugins count = ".sizeof($plugins)."\n");
 	if (sizeof($plugins)) {
 		$j = 0;
 		foreach ($plugins as $plugin) {
@@ -508,6 +565,8 @@ function update_show_current () {
 	});
 	</script>
 	<?php
+
+	gds_debug("Exit update_show_current()\n");
 
 	db_execute("DROP TABLE $table");
 }
@@ -663,4 +722,6 @@ function plugin_actions($plugin, $table) {
 
 	return $link;
 }
+
+gds_debug("Exit plugins.php\n");
 
